@@ -5,6 +5,17 @@ function go(page){$$('.page').forEach(x=>x.classList.toggle('active',x.id===page
 $$('[data-page]').forEach(b=>b.onclick=()=>go(b.dataset.page));$$('[data-goto]').forEach(b=>b.onclick=()=>go(b.dataset.goto));$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$$('[data-pick]').forEach(b=>b.onclick=()=>$('#'+b.dataset.pick).click());
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400)}
 function clean(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function readableError(value,fallback='Não foi possível concluir a consulta.'){
+  if(typeof value==='string'&&value.trim())return value.trim();
+  if(value instanceof Error)return readableError(value.message,fallback);
+  if(value&&typeof value==='object')return readableError(value.error||value.message||value.detail||value.title,fallback);
+  return fallback;
+}
+async function apiPayload(response){
+  const text=await response.text();
+  if(!text)return {};
+  try{return JSON.parse(text)}catch{return {error:response.ok?'A API retornou uma resposta inválida.':`Falha HTTP ${response.status}.`}}
+}
 async function apiFetch(url,options={},retry=true){
   const headers=new Headers(options.headers||{}),key=sessionStorage.getItem('isevAccessKey');
   if(key)headers.set('X-iSev-Key',key);
@@ -220,7 +231,7 @@ function sefazCadastroHtml(data){
 async function querySefazCadastro(data){
   const result=$('#sefazCadastroResult'),button=$('#querySefazCadastro');
   button.disabled=true;button.textContent='Consultando SEFAZ…';result.innerHTML='<div class="sefaz-loading"><span></span>Autenticando com o certificado A1 e consultando o cadastro estadual.</div>';
-  try{const response=await apiFetch('/api/sefaz/consulta-cadastro',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cnpj:data.cnpj,uf:data.uf,environment:'production'})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Consulta estadual indisponível');result.innerHTML=sefazCadastroHtml(payload)}catch(error){result.innerHTML=`<div class="alert error"><strong>Consulta oficial não concluída.</strong><br>${clean(error.message)}</div>`}finally{button.disabled=false;button.textContent='Consultar IE oficial na SEFAZ'}
+  try{const response=await apiFetch('/api/sefaz/consulta-cadastro',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cnpj:data.cnpj,uf:data.uf,environment:'production'})});const payload=await apiPayload(response);if(!response.ok)throw new Error(readableError(payload,'Consulta estadual indisponível.'));result.innerHTML=sefazCadastroHtml(payload)}catch(error){result.innerHTML=`<div class="alert error"><strong>Consulta oficial não concluída.</strong><br>${clean(readableError(error,'Consulta estadual indisponível.'))}</div>`}finally{button.disabled=false;button.textContent='Consultar IE oficial na SEFAZ'}
 }
 function cnpjFullCard(c){
   const ies=c.inscricoesEstaduais||[],activeIes=ies.filter(item=>item.ativa);
@@ -249,12 +260,12 @@ async function runCnpjLookup(){
   const box=$('#cnpjResult');box.className='empty-panel compact';box.innerHTML='<span>…</span><h3>Consultando dados cadastrais e fiscais</h3><p>As fontes públicas podem levar alguns segundos.</p>';
   try{
     const response=await apiFetch(`/api/cnpj/${cnpj}?mode=${encodeURIComponent(mode)}`,{headers:{Accept:'application/json'},cache:'no-store'});
-    const data=await response.json();if(!response.ok)throw new Error(data.error||'Consulta indisponível');
+    const data=await apiPayload(response);if(!response.ok)throw new Error(readableError(data,'Consulta indisponível.'));
     lastCnpjResult=data;box.className='company-card';box.innerHTML=cnpjFullCard(data);
     $('#querySefazCadastro').onclick=()=>querySefazCadastro(data);
     $('#copyCnpjData').onclick=async()=>{const lines=[data.razao,cnpjFmt(data.cnpj),`Situação: ${data.situacao||'—'}`,`Cidade/UF: ${data.municipio||'—'} / ${data.uf||'—'}`,`IE: ${(data.inscricoesEstaduais||[]).map(i=>i.numero+' '+(i.uf||'')).join(', ')||'não retornada'}`,`CNAE: ${data.atividadePrincipal?.codigo||'—'} · ${data.atividadePrincipal?.descricao||'—'}`];await navigator.clipboard.writeText(lines.join('\n'));toast('Resumo do CNPJ copiado')};
     $('#newCnpjSearch').onclick=()=>{$('#cnpjInput').value='';box.className='empty-panel compact';box.innerHTML='<span>⌕</span><h3>Faça uma consulta</h3><p>Os dados cadastrais aparecerão aqui.</p>';$('#cnpjInput').focus()};
-  }catch(error){box.className='empty-panel compact';box.innerHTML=`<span>!</span><h3>Consulta não concluída</h3><p>${clean(error.message)}</p>`}
+  }catch(error){box.className='empty-panel compact';box.innerHTML=`<span>!</span><h3>Consulta não concluída</h3><p>${clean(readableError(error))}</p>`}
 }
 $('#searchCnpj').onclick=runCnpjLookup;
 $('#cnpjInput').onkeydown=event=>{if(event.key==='Enter')runCnpjLookup()};
@@ -281,8 +292,8 @@ function sefazResultHtml(data){
 async function queryOfficialSefaz(key){
   const button=$('#querySefaz'),target=$('#sefazOfficialResult'),environment=$('#sefazEnvironment').value;
   button.disabled=true;button.textContent='Consultando…';target.innerHTML='<div class="sefaz-loading"><span></span>Conectando com certificado digital e aguardando a SEFAZ.</div>';
-  try{const response=await apiFetch('/api/sefaz/consulta-protocolo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,environment})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Consulta não concluída.');target.innerHTML=sefazResultHtml(data)}
-  catch(error){target.innerHTML=`<div class="alert error"><strong>Consulta oficial não concluída.</strong><br>${clean(error.message)}</div>`}
+  try{const response=await apiFetch('/api/sefaz/consulta-protocolo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,environment})});const data=await apiPayload(response);if(!response.ok)throw new Error(readableError(data,'Consulta não concluída.'));target.innerHTML=sefazResultHtml(data)}
+  catch(error){target.innerHTML=`<div class="alert error"><strong>Consulta oficial não concluída.</strong><br>${clean(readableError(error))}</div>`}
   finally{button.disabled=false;button.textContent='Consultar SEFAZ'}
 }
 function analyzeAccessKey(){
