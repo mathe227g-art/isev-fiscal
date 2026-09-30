@@ -9,7 +9,7 @@ function json(response,status,data){response.writeHead(status,API_HEADERS);respo
 function header(request,name){const value=request.headers?.[name];return Array.isArray(value)?value[0]:value||''}
 function authorized(request){
   const expected=process.env.ISEV_ACCESS_KEY;
-  if(!expected)return !process.env.VERCEL;
+  if(!expected)return true;
   const received=String(header(request,'x-isev-key'));
   const a=Buffer.from(received),b=Buffer.from(expected);
   return a.length===b.length&&a.length>0&&timingSafeEqual(a,b);
@@ -37,8 +37,7 @@ export async function handleApi(request,response){
   const pathname=decodeURIComponent(new URL(request.url,'http://localhost').pathname).replace(/\/+$/,'')||'/';
   if(!pathname.startsWith('/api/'))return false;
   if(!authorized(request)){
-    const configured=!!process.env.ISEV_ACCESS_KEY;
-    json(response,configured?401:503,{error:configured?'Acesso não autorizado.':'Defina ISEV_ACCESS_KEY no ambiente da Vercel.',code:configured?'UNAUTHORIZED':'ACCESS_KEY_NOT_CONFIGURED'});return true;
+    json(response,401,{error:'Acesso não autorizado.',code:'UNAUTHORIZED'});return true;
   }
   if(rateLimited(request)){json(response,429,{error:'Muitas consultas em sequência. Aguarde um minuto.',code:'RATE_LIMIT'});return true}
   try{
