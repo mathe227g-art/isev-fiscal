@@ -3,7 +3,7 @@ import tls from 'node:tls';
 import { readFile } from 'node:fs/promises';
 
 const SOAP_ACTION = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsultaProtocolo4/nfeConsultaNF';
-const ICP_ROOTS = ['certs/ICP-Brasilv10.crt'];
+const ICP_ROOT_URL = new URL('./certs/ICP-Brasilv10.crt', import.meta.url);
 
 const services = {
   AM: { production:'https://nfe.sefaz.am.gov.br/services2/services/NfeConsulta4', homologation:'https://homnfe.sefaz.am.gov.br/services2/services/NfeConsulta4' },
@@ -37,7 +37,7 @@ export async function tlsOptions(){
     pfx=Buffer.from(normalized,'base64');
     if(!pfx.length||pfx.length>48_000)throw Object.assign(new Error('Certificado fora do tamanho permitido.'),{code:'CERT_INVALID'});
   }else pfx=await readFile(pfxPath);
-  const extraCa=await Promise.all(ICP_ROOTS.map(path=>readFile(new URL(path, import.meta.url))));
+  const extraCa=[await readFile(ICP_ROOT_URL)];
   tls.createSecureContext({ pfx, passphrase });
   tlsCache = { pfx, passphrase, ca:[...tls.rootCertificates,...extraCa], minVersion:'TLSv1.2', rejectUnauthorized:true };
   return tlsCache;

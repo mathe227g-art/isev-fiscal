@@ -31,7 +31,14 @@ async function bodyJson(request){
 function publicError(error){
   const status=Number(error.status)||(['INVALID_KEY','INVALID_ENVIRONMENT','INVALID_UF','INVALID_CNPJ','INVALID_PROVIDER'].includes(error.code)?400:502);
   const safe=status<500||['CERT_NOT_CONFIGURED','CADASTRO_UF_UNAVAILABLE','SEFAZ_TIMEOUT','CNPJ_PROVIDERS_UNAVAILABLE'].includes(error.code);
-  return {status,data:{error:safe?error.message:'Não foi possível concluir a consulta externa.',code:error.code||'EXTERNAL_SERVICE_ERROR'}};
+  const detail=String(error.message||'');
+  let message=safe?detail:'Não foi possível concluir a consulta externa.';
+  if(/mac verify|pkcs12|password|decrypt|cipherfinal/i.test(detail))message='Não foi possível abrir o certificado A1. Confira a senha configurada em ISEV_PFX_PASSWORD.';
+  else if(error.code==='ENOENT')message='O arquivo da cadeia ICP-Brasil não foi incluído na função da Vercel.';
+  else if(error.code==='CERT_HAS_EXPIRED')message='O certificado digital informado está vencido.';
+  else if(['UNABLE_TO_VERIFY_LEAF_SIGNATURE','SELF_SIGNED_CERT_IN_CHAIN','UNABLE_TO_GET_ISSUER_CERT_LOCALLY'].includes(error.code))message='A cadeia TLS da SEFAZ não pôde ser validada.';
+  else if(['ECONNRESET','ECONNREFUSED','EHOSTUNREACH','ENETUNREACH','ENOTFOUND'].includes(error.code))message='A conexão com o Web Service da SEFAZ foi recusada ou está indisponível.';
+  return {status,data:{error:message,code:error.code||'EXTERNAL_SERVICE_ERROR'}};
 }
 export async function handleApi(request,response){
   const pathname=decodeURIComponent(new URL(request.url,'http://localhost').pathname).replace(/\/+$/,'')||'/';
